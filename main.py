@@ -7,7 +7,7 @@ from telegram.ext import (
     ContextTypes,
     filters
 )
-import requests, re, os, instaloader, asyncio
+import requests, re, os, instaloader
 
 # ================= CONFIG =================
 BOT_TOKEN = "8484540629:AAGDNlJw0sYtkpNkRk6HKFSGRtrqcfllI5A"
@@ -15,9 +15,6 @@ BOT_TOKEN = "8484540629:AAGDNlJw0sYtkpNkRk6HKFSGRtrqcfllI5A"
 CHANNEL_USERNAME = "@e3hacker"
 CHANNEL_LINK = "https://t.me/e3hacker"
 ADMIN_CONTACT = "@e3hacker2"
-
-SIM_API_URL = "https://fam-official.serv00.net/api/database.php?number="
-CNIC_API_URL = "https://fam-official.serv00.net/api/database.php?number="
 
 TEMPM_API_BASE = "https://temp-mail-fak.jokerkeep057.workers.dev/"
 TEMPM_API_KEY = "32563"
@@ -30,12 +27,11 @@ IG_SAVE_PATH = "/tmp/INSTALOADER"
 def main_menu():
     return InlineKeyboardMarkup([
         [
-            InlineKeyboardButton("📊 SIM Info", callback_data="sim"),
-            InlineKeyboardButton("🆔 CNIC Info", callback_data="cnic")
-        ],
-        [
             InlineKeyboardButton("🎬 TikTok", callback_data="tiktok"),
             InlineKeyboardButton("📸 Instagram", callback_data="instagram")
+        ],
+        [
+            InlineKeyboardButton("🤖 AI IMAGE", callback_data="ai_image")
         ],
         [
             InlineKeyboardButton("📧 TempMail", callback_data="tempmail")
@@ -70,14 +66,6 @@ async def is_member(bot, user_id):
         return False
 
 
-def clean_text(t):
-    return re.sub(r"(famofc|credit)", "", str(t), flags=re.I).strip()
-
-
-def valid_mobile(t): return re.fullmatch(r"03\d{9}", t)
-def valid_cnic(t): return re.fullmatch(r"\d{13}", t)
-
-
 # ================= START =================
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data.clear()
@@ -95,40 +83,65 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 
-async def joined(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.callback_query.answer()
-    await start(update, context)
-
-
 # ================= INPUT =================
 async def handle_input(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text.strip()
 
-    if valid_mobile(text):
-        await fetch_api(update, SIM_API_URL + text, "SIM Info")
-    elif valid_cnic(text):
-        await fetch_api(update, CNIC_API_URL + text, "CNIC Info")
-    elif "tiktok.com" in text:
+    if context.user_data.get("mode") == "ai_image":
+        await generate_ai_image(update, context, text)
+        return
+
+    if "tiktok.com" in text:
         await fetch_tiktok(update, text)
+
     elif "instagram.com" in text:
         await fetch_instagram(update, text)
+
     else:
         await update.message.reply_text("❌ Invalid input")
 
 
-# ================= API =================
-async def fetch_api(update, url, title):
-    msg = await update.message.reply_text("⏳ Fetching...")
+# ================= AI IMAGE =================
+async def generate_ai_image(update, context, description):
+    msg = await update.message.reply_text("🎨 Generating AI Image...")
+
+    headers = {
+        'accept': '*/*',
+        'origin': 'https://www.writecream.com',
+        'referer': 'https://www.writecream.com/',
+        'user-agent': 'Mozilla/5.0'
+    }
+
+    params = {
+        'prompt': description,
+        'aspect_ratio': '16:9',
+        'link': 'writecream.com',
+        'description': description,
+    }
+
     try:
-        r = requests.get(url, timeout=15).json()
-        out = ""
-        for k, v in r.items():
-            k, v = clean_text(k), clean_text(v)
-            if k and v:
-                out += f"{k}: {v}\n"
-        await msg.edit_text(f"📄 {title}\n\n{out}")
+        r = requests.get(
+            'https://1yjs1yldj7.execute-api.us-east-1.amazonaws.com/default/ai_image',
+            params=params,
+            headers=headers,
+            timeout=30
+        ).json()
+
+        image = r.get("image_link")
+
+        if not image:
+            await msg.edit_text("❌ Image generation failed")
+            return
+
+        await update.message.reply_photo(
+            photo=image,
+            caption=f"🤖 AI IMAGE\n\n📝 Prompt:\n{description}"
+        )
+
+        context.user_data.pop("mode", None)
+
     except:
-        await msg.edit_text("❌ Error")
+        await msg.edit_text("❌ Error generating image")
 
 
 # ================= TikTok =================
@@ -136,13 +149,13 @@ async def fetch_tiktok(update, url):
     msg = await update.message.reply_text("⏳ Downloading...")
     try:
         api = f"https://mrking-tiktok-download-api.deno.dev/?url={url}"
-        video = requests.get(api).json().get("video")
+        video = requests.get(api, timeout=15).json().get("video")
         r = requests.get(video)
-        open("t.mp4", "wb").write(r.content)
-        await update.message.reply_video(open("t.mp4", "rb"))
-        os.remove("t.mp4")
+        open("tiktok.mp4", "wb").write(r.content)
+        await update.message.reply_video(open("tiktok.mp4", "rb"))
+        os.remove("tiktok.mp4")
     except:
-        await msg.edit_text("❌ Failed")
+        await msg.edit_text("❌ TikTok download failed")
 
 
 # ================= Instagram =================
@@ -151,27 +164,33 @@ async def fetch_instagram(update, url):
     try:
         code = re.search(r"/(reel|p)/([^/?]+)", url).group(2)
         os.makedirs(IG_SAVE_PATH, exist_ok=True)
+
         loader = instaloader.Instaloader(
-            download_videos=True, quiet=True,
+            download_videos=True,
+            quiet=True,
             dirname_pattern=IG_SAVE_PATH,
             filename_pattern="{shortcode}"
         )
+
         post = instaloader.Post.from_shortcode(loader.context, code)
         loader.download_post(post, "")
+
         path = f"{IG_SAVE_PATH}/{code}.mp4"
         await update.message.reply_video(open(path, "rb"))
         os.remove(path)
     except:
-        await msg.edit_text("❌ Failed")
+        await msg.edit_text("❌ Instagram download failed")
 
 
 # ================= TEMPMail =================
 async def auto_refresh(context):
     chat_id = context.job.chat_id
     session = context.job.data
+
     r = requests.get(
         f"{TEMPM_API_BASE}?key={TEMPM_API_KEY}&action=inbox&session={session}"
     ).json()
+
     for m in r.get("inbox", []):
         await context.bot.send_message(
             chat_id,
@@ -183,12 +202,14 @@ async def temp_new_email(update, context):
     q = update.callback_query
     await q.answer()
 
+    for job in context.job_queue.get_jobs_by_name(str(q.message.chat_id)):
+        job.schedule_removal()
+
     r = requests.get(
         f"{TEMPM_API_BASE}?key={TEMPM_API_KEY}&action=generate"
     ).json()
 
     context.user_data["session"] = r["sessionId"]
-    context.user_data["email"] = r["emailAddress"]
 
     await q.message.reply_text(
         f"📧 Email Created\n{r['emailAddress']}",
@@ -196,8 +217,11 @@ async def temp_new_email(update, context):
     )
 
     context.job_queue.run_repeating(
-        auto_refresh, interval=15, first=15,
+        auto_refresh,
+        interval=15,
+        first=15,
         chat_id=q.message.chat_id,
+        name=str(q.message.chat_id),
         data=r["sessionId"]
     )
 
@@ -207,7 +231,7 @@ async def temp_inbox(update, context):
     await q.answer()
 
     r = requests.get(
-        f"{TEMPM_API_BASE}?key={TEMPM_API_KEY}&action=inbox&session={context.user_data['session']}"
+        f"{TEMPM_API_BASE}?key={TEMPM_API_KEY}&action=inbox&session={context.user_data.get('session')}"
     ).json()
 
     for m in r.get("inbox", []):
@@ -227,25 +251,21 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif q.data == "menu":
         await q.message.reply_text("🏠 Main Menu", reply_markup=main_menu())
 
-    elif q.data == "sim":
-        await q.message.reply_text("Send mobile number")
-
-    elif q.data == "cnic":
-        await q.message.reply_text("Send CNIC number")
-
     elif q.data == "tiktok":
-        await q.message.reply_text("Send TikTok link")
+        await q.message.reply_text("🎬 Send TikTok link")
 
     elif q.data == "instagram":
-        await q.message.reply_text("Send Instagram link")
+        await q.message.reply_text("📸 Send Instagram link")
+
+    elif q.data == "ai_image":
+        context.user_data["mode"] = "ai_image"
+        await q.message.reply_text("🤖 Send image description")
 
     elif q.data == "admin":
-        await q.message.reply_text(f"Contact: {ADMIN_CONTACT}")
+        await q.message.reply_text(f"👤 Contact: {ADMIN_CONTACT}")
 
     elif q.data == "tempmail":
-        if not context.user_data.get("tm_open"):
-            context.user_data["tm_open"] = True
-            await q.message.reply_text("📧 TempMail Menu", reply_markup=tempmail_menu())
+        await q.message.reply_text("📧 TempMail Menu", reply_markup=tempmail_menu())
 
     elif q.data == "new_email":
         await temp_new_email(update, context)
