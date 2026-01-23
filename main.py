@@ -1,8 +1,6 @@
 import asyncio
-import requests, re, os, instaloader, phonenumbers
+import sqlite3, os, re, requests, instaloader, phonenumbers
 from phonenumbers import geocoder, carrier, timezone
-import sqlite3
-
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
     Application, CommandHandler, MessageHandler, CallbackQueryHandler,
@@ -24,7 +22,6 @@ ADMIN_ID = 7763525520
 # ---------- DATABASE ----------
 conn = sqlite3.connect("users.db", check_same_thread=False)
 cur = conn.cursor()
-
 cur.execute("""
 CREATE TABLE IF NOT EXISTS users (
     user_id INTEGER PRIMARY KEY,
@@ -115,30 +112,40 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     q = update.callback_query
     await q.answer()
+    user_id = q.from_user.id
     data = q.data
 
     if data in ["joined", "menu"]:
         await start(update, context)
+
     elif data == "tiktok":
         await q.message.reply_text("🎬 Send TikTok link")
-        context.user_data["mode"]="tiktok"
+        context.user_data["mode"] = "tiktok"
+
     elif data == "instagram":
         await q.message.reply_text("📸 Send Instagram link")
-        context.user_data["mode"]="instagram"
+        context.user_data["mode"] = "instagram"
+
     elif data == "ai_image":
         await q.message.reply_text("🤖 Send AI Image description")
-        context.user_data["mode"]="ai_image"
+        context.user_data["mode"] = "ai_image"
+
     elif data == "ip_number":
-        kb = [[InlineKeyboardButton("🌐 IP Info", callback_data="ip_info")],
-              [InlineKeyboardButton("📱 Number Info", callback_data="phone_info")],
-              [InlineKeyboardButton("🔙 Back", callback_data="menu")]]
+        kb = [
+            [InlineKeyboardButton("🌐 IP Info", callback_data="ip_info")],
+            [InlineKeyboardButton("📱 Number Info", callback_data="phone_info")],
+            [InlineKeyboardButton("🔙 Back", callback_data="menu")]
+        ]
         await q.message.reply_text("Select IP or Number tool", reply_markup=InlineKeyboardMarkup(kb))
+
     elif data == "ip_info":
         await q.message.reply_text("🌐 Send IP address (example: 8.8.8.8)")
-        context.user_data["mode"]="ip_number_ip"
+        context.user_data["mode"] = "ip_number_ip"
+
     elif data == "phone_info":
         await q.message.reply_text("📱 Send phone number (example: +919912345678)")
-        context.user_data["mode"]="ip_number_phone"
+        context.user_data["mode"] = "ip_number_phone"
+
     elif data == "admin":
         await q.message.reply_text(f"👤 Contact: {ADMIN_CONTACT}")
 
@@ -150,12 +157,12 @@ async def handle_input(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("❌ Please select an option from menu first")
         return
 
-    if mode == "ai_image":
-        await generate_ai_image(update, text)
-    elif mode == "tiktok":
+    if mode == "tiktok":
         await fetch_tiktok(update, text)
     elif mode == "instagram":
         await fetch_instagram(update, text)
+    elif mode == "ai_image":
+        await generate_ai_image(update, text)
     elif mode == "ip_number_ip":
         result = await get_extended_ip_info(text)
         await update.message.reply_text(result)
@@ -181,7 +188,7 @@ async def generate_ai_image(update, description):
     except:
         await msg.edit_text("❌ Error generating image")
 
-# ---------- IP & NUMBER ----------
+# ---------- IP & PHONE ----------
 async def get_extended_ip_info(ip):
     try:
         r = await asyncio.to_thread(requests.get, f"http://ip-api.com/json/{ip}")
