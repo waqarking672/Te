@@ -1,153 +1,151 @@
+import sqlite3
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
     Application,
     CommandHandler,
     CallbackQueryHandler,
-    MessageHandler,
     ContextTypes,
-    filters
 )
 
 # ================= CONFIG =================
 BOT_TOKEN = "8484540629:AAGDNlJw0sYtkpNkRk6HKFSGRtrqcfllI5A"
-BOT_USERNAME = "siminfodata_pk_bot"   # without @
 CHANNEL_USERNAME = "@e3hacker"
-CHANNEL_LINK = "https://t.me/e3hacker"
-
-ADMIN_ID = 7763525520  # your numeric Telegram ID
-
+ADMIN_ID = 7763525520   # your Telegram numeric ID
 NEW_USER_POINTS = 5
-REFERRAL_POINTS = 5
+REFERRER_POINTS = 5
+# =========================================
 
-# ================= DATABASE (IN-MEMORY) =================
-users = {}  # user_id: {"points": int, "referrals": int}
 
-# ================= MENUS =================
-def join_menu():
-    return InlineKeyboardMarkup([
-        [InlineKeyboardButton("✅ Join Channel", url=CHANNEL_LINK)],
-        [InlineKeyboardButton("✔ I Joined", callback_data="joined")]
-    ])
+# ---------- DATABASE ----------
+conn = sqlite3.connect("users.db", check_same_thread=False)
+cur = conn.cursor()
 
-def main_menu():
-    return InlineKeyboardMarkup([
-        [InlineKeyboardButton("🎁 My Points", callback_data="points")],
-        [InlineKeyboardButton("👑 Admin Panel", callback_data="admin")]
-    ])
+cur.execute("""
+CREATE TABLE IF NOT EXISTS users (
+    user_id INTEGER PRIMARY KEY,
+    points INTEGER DEFAULT 0,
+    referred_by INTEGER
+)
+""")
+conn.commit()
 
-def admin_menu():
-    return InlineKeyboardMarkup([
-        [InlineKeyboardButton("📊 User Stats", callback_data="stats")],
-        [InlineKeyboardButton("➕ Add 10 Points", callback_data="add_points")],
-        [InlineKeyboardButton("➖ Remove 10 Points", callback_data="remove_points")]
-    ])
 
-# ================= UTILS =================
-async def is_member(bot, user_id):
-    try:
-        m = await bot.get_chat_member(CHANNEL_USERNAME, user_id)
-        return m.status in ("member", "administrator", "creator")
-    except:
-        return False
+def user_exists(user_id):
+    cur.execute("SELECT user_id FROM users WHERE user_id=?", (user_id,))
+    return cur.fetchone() is not None
 
-def add_user(user_id):
-    if user_id not in users:
-        users[user_id] = {"points": NEW_USER_POINTS, "referrals": 0}
 
-# ================= START + REFERRAL =================
+def add_user(user_id, referred_by=None):
+    cur.execute(
+        "INSERT INTO users (user_id, points, referred_by) VALUES (?, ?, ?)",
+        (user_id, NEW_USER_POINTS, referred_by),
+    )
+    conn.commit()
+
+
+def add_points(user_id, points):
+    cur.execute(
+        "UPDATE users SET points = points + ? WHERE user_id=?",
+        (points, user_id),
+    )
+    conn.commit()
+
+
+def get_points(user_id):
+    cur.execute("SELECT points FROM users WHERE user_id=?", (user_id,))
+    r = cur.fetchone()
+    return r[0] if r else 0
+
+
+# ---------- START ----------
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     args = context.args
 
-    if not await is_member(context.bot, user_id):
-        await update.message.reply_text(
-            "❌ Please join the channel first",
-            reply_markup=join_menu()
-        )
-        return
-
-    if user_id not in users:
-        add_user(user_id)
-
-        # referral logic
+    # referral handling
+    if not user_exists(user_id):
+        referred_by = None
         if args:
-            try:
-                ref_id = int(args[0])
-                if ref_id != user_id and ref_id in users:
-                    users[ref_id]["points"] += REFERRAL_POINTS
-                    users[ref_id]["referrals"] += 1
-            except:
-                pass
+            ref_id = int(args[0])
+            if ref_id != user_id and user_exists(ref_id):
+                referred_by = ref_id
+                add_points(ref_id, REFERRER_POINTS)
+
+        add_user(user_id, referred_by)
+
+    keyboard = [
+        [InlineKeyboardButton("📢 Join Channel", url=f"https://t.me/{CHANNEL_USERNAME.replace('@','')}")],
+        [InlineKeyboardButton("✅ Done", callback_data="check_join")]
+    ]
 
     await update.message.reply_text(
-        "✅ Bot is running!\nChoose an option 👇",
-        reply_markup=main_menu()
+        "👋 Welcome!\n\n"
+        "🔒 You must join our channel to use this bot.\n\n"
+        "👉 Join channel then press **Done**.",
+        reply_markup=InlineKeyboardMarkup(keyboard),
+        parse_mode="Markdown"
     )
 
-# ================= BUTTON HANDLER =================
-async def buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    q = update.callback_query
-    await q.answer()
-    uid = q.from_user.id
 
-    if q.data == "joined":
-        await start(update, context)
+# ---------- FORCE JOIN CHECK ----------
+async def check_join(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    user_id = query.from_user.id
+    await query.answer()
 
-    elif q.data == "points":
-        user = users.get(uid)
-        link = f"https://t.me/{BOT_USERNAME}?start={uid}"
-        await q.message.reply_text(
-            f"🎁 Your Points: {user['points']}\n"
-            f"👥 Referrals: {user['referrals']}\n\n"
-            f"🔗 Your Referral Link:\n{link}"
+    try:
+        member = await context.bot.get_chat_member(CHANNEL_USERNAME, user_id)
+        if member.status in ["member", "administrator", "creator"]:
+            points = get_points(user_id)
+            await query.edit_message_text(
+                f"✅ Access Granted!\n\n"
+                f"⭐ Your Points: {points}\n\n"
+                f"👥 Invite users using your referral link:\n"
+                f"https://t.me/{context.bot.username}?start={user_id}"
+            )
+        else:
+            raise Exception()
+
+    except:
+        await query.answer(
+            "❌ Please join the channel first!",
+            show_alert=True
         )
 
-    elif q.data == "admin":
-        if uid != ADMIN_ID:
-            await q.message.reply_text("❌ Admin only")
-            return
-        await q.message.reply_text("👑 Admin Panel", reply_markup=admin_menu())
 
-    elif q.data == "stats" and uid == ADMIN_ID:
-        await q.message.reply_text(f"📊 Total Users: {len(users)}")
+# ---------- ADMIN COMMAND ----------
+async def admin(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.effective_user.id != ADMIN_ID:
+        return
 
-    elif q.data in ("add_points", "remove_points") and uid == ADMIN_ID:
-        context.user_data["admin_action"] = q.data
-        await q.message.reply_text("Send User ID")
+    cur.execute("SELECT COUNT(*) FROM users")
+    total_users = cur.fetchone()[0]
 
-# ================= TEXT HANDLER (ADMIN ONLY) =================
-async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    uid = update.effective_user.id
-    text = update.message.text.strip()
+    await update.message.reply_text(
+        f"👑 Admin Panel\n\n"
+        f"👥 Total Users: {total_users}"
+    )
 
-    if uid == ADMIN_ID and context.user_data.get("admin_action"):
-        try:
-            target = int(text)
-            if target not in users:
-                await update.message.reply_text("❌ User not found")
-                return
 
-            if context.user_data["admin_action"] == "add_points":
-                users[target]["points"] += 10
-                await update.message.reply_text("✅ 10 points added")
-            else:
-                users[target]["points"] = max(0, users[target]["points"] - 10)
-                await update.message.reply_text("✅ 10 points removed")
+# ---------- POINTS ----------
+async def points(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    p = get_points(user_id)
+    await update.message.reply_text(f"⭐ Your Points: {p}")
 
-            context.user_data.clear()
-        except:
-            await update.message.reply_text("❌ Invalid ID")
 
-# ================= MAIN =================
+# ---------- MAIN ----------
 def main():
     app = Application.builder().token(BOT_TOKEN).build()
 
     app.add_handler(CommandHandler("start", start))
-    app.add_handler(CallbackQueryHandler(buttons))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
+    app.add_handler(CallbackQueryHandler(check_join, pattern="check_join"))
+    app.add_handler(CommandHandler("admin", admin))
+    app.add_handler(CommandHandler("points", points))
 
-    print("Bot started successfully...")
+    print("🤖 Bot is running successfully...")
     app.run_polling()
+
 
 if __name__ == "__main__":
     main()
