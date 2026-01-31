@@ -1,24 +1,22 @@
 import requests
-from telegram import Update
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, MessageHandler, ContextTypes, filters
-from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 
-# ============ BOT CONFIG (ONLY ONE PLACE) ============
+# ================== CONFIG (ONLY ONE PLACE) ==================
 BOT_TOKEN = "8484540629:AAGDNlJw0sYtkpNkRk6HKFSGRtrqcfllI5A"
 CHANNEL_USERNAME = "@e3hacker"
 API_URL = "https://arslan-apis.vercel.app/more/database?number="
-# ====================================================
+# =============================================================
 
 
-# 🔹 Force Join Keyboard
+# 🔹 Join Button
 def join_keyboard():
     return InlineKeyboardMarkup([
         [InlineKeyboardButton("🔔 Join Channel", url=f"https://t.me/{CHANNEL_USERNAME.replace('@','')}")],
-        [InlineKeyboardButton("✅ Joined", callback_data="joined")]
     ])
 
 
-# 🔹 Check Join
+# 🔹 Check Channel Join
 async def is_joined(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         member = await context.bot.get_chat_member(
@@ -30,7 +28,7 @@ async def is_joined(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return False
 
 
-# 🔹 Start
+# 🔹 /start
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not await is_joined(update, context):
         await update.message.reply_text(
@@ -63,13 +61,36 @@ async def handle_number(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     try:
-        res = requests.get(API_URL + number, timeout=10)
+        res = requests.get(API_URL + number, timeout=15)
+
+        if res.status_code != 200:
+            await update.message.reply_text("❌ API response error")
+            return
+
         data = res.json()
 
-        # Clean output (NO CREDIT)
-        name = data.get("name", "Not Found")
-        cnic = data.get("cnic", "Not Found")
-        address = data.get("address", "Not Found")
+        # 🔹 UNIVERSAL DATA FIX (IMPORTANT PART)
+        info = {}
+
+        if isinstance(data, dict):
+            if "result" in data and isinstance(data["result"], dict):
+                info = data["result"]
+            elif "data" in data:
+                if isinstance(data["data"], list) and len(data["data"]) > 0:
+                    info = data["data"][0]
+                elif isinstance(data["data"], dict):
+                    info = data["data"]
+            else:
+                info = data
+
+        # 🔹 Extract fields safely
+        name = info.get("name") or info.get("Name") or "Not Found"
+        cnic = info.get("cnic") or info.get("CNIC") or "Not Found"
+        address = info.get("address") or info.get("Address") or "Not Found"
+
+        if name == "Not Found" and cnic == "Not Found":
+            await update.message.reply_text("❌ Is number ka data nahi mila")
+            return
 
         msg = (
             f"📊 *SIM Information*\n\n"
@@ -81,7 +102,7 @@ async def handle_number(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         await update.message.reply_text(msg, parse_mode="Markdown")
 
-    except:
+    except Exception as e:
         await update.message.reply_text("❌ Data fetch failed")
 
 
