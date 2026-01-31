@@ -2,21 +2,24 @@ import requests
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, MessageHandler, ContextTypes, filters
 
-# ================== CONFIG (ONLY ONE PLACE) ==================
+# ================= CONFIG (ONLY ONE PLACE) =================
 BOT_TOKEN = "8484540629:AAGDNlJw0sYtkpNkRk6HKFSGRtrqcfllI5A"
 CHANNEL_USERNAME = "@e3hacker"
 API_URL = "https://arslan-apis.vercel.app/more/database?number="
-# =============================================================
+# ===========================================================
+
+HEADERS = {
+    "User-Agent": "Mozilla/5.0 (Linux; Android 12; Mobile)",
+    "Accept": "application/json"
+}
 
 
-# 🔹 Join Button
 def join_keyboard():
     return InlineKeyboardMarkup([
-        [InlineKeyboardButton("🔔 Join Channel", url=f"https://t.me/{CHANNEL_USERNAME.replace('@','')}")],
+        [InlineKeyboardButton("🔔 Join Channel", url=f"https://t.me/{CHANNEL_USERNAME.replace('@','')}")]
     ])
 
 
-# 🔹 Check Channel Join
 async def is_joined(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         member = await context.bot.get_chat_member(
@@ -28,7 +31,6 @@ async def is_joined(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return False
 
 
-# 🔹 /start
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not await is_joined(update, context):
         await update.message.reply_text(
@@ -38,14 +40,12 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     await update.message.reply_text(
-        "📱 *SIM Database Bot*\n\n"
+        "📱 SIM Database Bot\n\n"
         "📌 Number send karein (without +92)\n\n"
-        "Example:\n3482265786",
-        parse_mode="Markdown"
+        "Example: 3482265786"
     )
 
 
-# 🔹 Handle Number
 async def handle_number(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not await is_joined(update, context):
         await update.message.reply_text(
@@ -61,62 +61,58 @@ async def handle_number(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     try:
-        res = requests.get(API_URL + number, timeout=15)
+        url = API_URL + number
+        res = requests.get(url, headers=HEADERS, timeout=20)
 
         if res.status_code != 200:
-            await update.message.reply_text("❌ API response error")
+            await update.message.reply_text("❌ API block ho rahi hai")
             return
 
         data = res.json()
 
-        # 🔹 UNIVERSAL DATA FIX (IMPORTANT PART)
+        # 🔥 REAL SAFE PARSING
         info = {}
 
         if isinstance(data, dict):
-            if "result" in data and isinstance(data["result"], dict):
+            if "result" in data:
                 info = data["result"]
-            elif "data" in data:
-                if isinstance(data["data"], list) and len(data["data"]) > 0:
-                    info = data["data"][0]
-                elif isinstance(data["data"], dict):
-                    info = data["data"]
+            elif "data" in data and isinstance(data["data"], list) and len(data["data"]) > 0:
+                info = data["data"][0]
             else:
                 info = data
 
-        # 🔹 Extract fields safely
-        name = info.get("name") or info.get("Name") or "Not Found"
-        cnic = info.get("cnic") or info.get("CNIC") or "Not Found"
-        address = info.get("address") or info.get("Address") or "Not Found"
+        name = info.get("name") or "Not Found"
+        cnic = info.get("cnic") or "Not Found"
+        address = info.get("address") or "Not Found"
 
         if name == "Not Found" and cnic == "Not Found":
-            await update.message.reply_text("❌ Is number ka data nahi mila")
+            await update.message.reply_text("❌ Is number ka data available nahi")
             return
 
         msg = (
-            f"📊 *SIM Information*\n\n"
-            f"📞 *Number:* {number}\n"
-            f"👤 *Name:* {name}\n"
-            f"🆔 *CNIC:* {cnic}\n"
-            f"🏠 *Address:* {address}"
+            "📊 SIM Information\n\n"
+            f"📞 Number: {number}\n"
+            f"👤 Name: {name}\n"
+            f"🆔 CNIC: {cnic}\n"
+            f"🏠 Address: {address}"
         )
 
-        await update.message.reply_text(msg, parse_mode="Markdown")
+        await update.message.reply_text(msg)
 
     except Exception as e:
-        await update.message.reply_text("❌ Data fetch failed")
+        await update.message.reply_text("❌ API se data nahi aa raha")
 
 
-# 🔹 Main
 def main():
     if not BOT_TOKEN or "PASTE_" in BOT_TOKEN:
-        raise ValueError("❌ BOT TOKEN set nahi kiya")
+        raise ValueError("BOT TOKEN set nahi kiya")
 
     app = Application.builder().token(BOT_TOKEN).build()
 
     app.add_handler(CommandHandler("start", start))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_number))
 
-    print("🤖 Bot Running Successfully...")
+    print("🤖 Bot Running...")
     app.run_polling()
 
 
