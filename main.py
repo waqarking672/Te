@@ -5,7 +5,7 @@ from telegram.ext import Application, CommandHandler, MessageHandler, ContextTyp
 
 # ===================== BOT CONFIG =====================
 # Yahan sirf ek jagah token aur channel username paste karo
-BOT_TOKEN = "8486268251:AAGWgp2Vz_cOg2hIl7W2Fe-gFHMas5_zEo8"          # <-- Yahan apna bot token paste karo
+BOT_TOKEN = "8484540629:AAGDNlJw0sYtkpNkRk6HKFSGRtrqcfllI5A"          # <-- Yahan apna bot token paste karo
 CHANNEL_USERNAME = "@e3hacker"  # <-- Yahan apna channel username paste karo
 API_URL = "https://arslan-apis.vercel.app/more/database?number="
 # =======================================================
