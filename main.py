@@ -1,48 +1,100 @@
 import requests
-from telegram import Update
-from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, ContextTypes, filters
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.ext import Application, CommandHandler, MessageHandler, ContextTypes, filters
 
-# ================== ONLY CHANGE HERE ==================
-BOT_TOKEN = "7787473053:AAFCg166nfOqQY6dJUJfQ3ct5Rfc66dxkrI"
-# =====================================================
+# ================== CONFIG ==================
+BOT_TOKEN = "8484540629:AAGDNlJw0sYtkpNkRk6HKFSGRtrqcfllI5A"   # 🔴 Sirf yahan token lagana hai
+CHANNEL_USERNAME = "@e3hacker"  # 🔴 @ ke sath
+API_URL = "https://arslan-apis.vercel.app/more/database?number="
+# ============================================
 
-API_URL = "https://arslan-apis.vercel.app/ai/blackboxv4?q="
-BOT_NAME = "🤖 Worm GPT"
 
-# /start command
+async def is_user_joined(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    try:
+        member = await context.bot.get_chat_member(CHANNEL_USERNAME, update.effective_user.id)
+        return member.status in ["member", "administrator", "creator"]
+    except:
+        return False
+
+
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    joined = await is_user_joined(update, context)
+
+    if not joined:
+        keyboard = [
+            [InlineKeyboardButton("🔔 Join Channel", url=f"https://t.me/{CHANNEL_USERNAME.replace('@','')}")],
+            [InlineKeyboardButton("✅ Joined Channel", callback_data="check_join")]
+        ]
+        await update.message.reply_text(
+            "🚫 *Access Denied*\n\n"
+            "Bot use karne ke liye pehle channel join karo 👇",
+            parse_mode="Markdown",
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
+        return
+
     await update.message.reply_text(
-        f"{BOT_NAME}\n\n"
-        "🧠 AI Chat Bot Ready\n"
-        "✍️ Kuch bhi likho, main jawab doon ga"
+        "🇵🇰 *PAK SIM INFO*\n\n"
+        "📱 Phone number bhejo (03XXXXXXXXX)",
+        parse_mode="Markdown"
     )
 
-# Handle messages
-async def chat(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_text = update.message.text
 
-    try:
-        res = requests.get(API_URL + user_text, timeout=60)
-        data = res.json()
+async def check_join(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
 
-        if data.get("status") is True:
-            reply = data.get("result") or data.get("response") or "No response"
-        else:
-            reply = data.get("err", "API error")
+    joined = await is_user_joined(update, context)
 
-    except Exception as e:
-        reply = f"Error: {e}"
+    if joined:
+        await query.message.edit_text(
+            "✅ *Channel Joined Successfully!*\n\n"
+            "📱 Ab phone number bhejo",
+            parse_mode="Markdown"
+        )
+    else:
+        await query.answer("❌ Abhi channel join nahi kiya", show_alert=True)
 
-    await update.message.reply_text(reply)
+
+async def sim_info(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    number = update.message.text.strip()
+
+    if not number.isdigit():
+        await update.message.reply_text("❌ Sirf number likho (digits only)")
+        return
+
+    joined = await is_user_joined(update, context)
+    if not joined:
+        await start(update, context)
+        return
+
+    response = requests.get(API_URL + number)
+    data = response.json()
+
+    if not data.get("status"):
+        await update.message.reply_text("❌ Koi data nahi mila")
+        return
+
+    # 🔒 Creator / Credit remove
+    data.pop("creator", None)
+
+    msg = "🇵🇰 *PAK SIM INFO*\n\n"
+    for key, value in data.items():
+        msg += f"🔹 *{key.capitalize()}*: `{value}`\n"
+
+    await update.message.reply_text(msg, parse_mode="Markdown")
+
 
 def main():
-    app = ApplicationBuilder().token(BOT_TOKEN).build()
+    app = Application.builder().token(BOT_TOKEN).build()
 
     app.add_handler(CommandHandler("start", start))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, chat))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, sim_info))
+    app.add_handler(MessageHandler(filters.StatusUpdate.ALL, lambda u, c: None))
+    app.add_handler(CommandHandler("check_join", check_join))
 
-    print("🤖 Worm GPT Bot Started...")
     app.run_polling()
+
 
 if __name__ == "__main__":
     main()
