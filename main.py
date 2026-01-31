@@ -1,72 +1,103 @@
-from telegram import Update
+import os
+import requests
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, MessageHandler, ContextTypes, filters
 
 # ================= CONFIG =================
-BOT_TOKEN = "8484540629:AAGDNlJw0sYtkpNkRk6HKFSGRtrqcfllI5A"
-CHANNEL_USERNAME = "@e3hacker"  # @ ke sath
-# ==========================================
+BOT_TOKEN = os.getenv("8484540629:AAGDNlJw0sYtkpNkRk6HKFSGRtrqcfllI5A")  # 🔒 Token only here
+API_URL = "https://arslan-apis.vercel.app/more/database?number="
+CHANNEL_USERNAME = "@e3hacker"  # without https://t.me/
+# =========================================
 
-# ================ MOCK DATABASE =================
-intelligenceDB = {
-    '3336678955': [
-        {'full_name': 'John Alexander', 'phone': '3336678955', 'cnic': '42101-1234567-8', 'address': 'Lahore, Pakistan'},
-        {'full_name': 'John A. Smith', 'phone': '3336678955', 'cnic': '42101-9876543-2', 'address': 'Karachi, Pakistan'}
-    ],
-    '3494545456': [
-        {'full_name': 'Ali Khan', 'phone': '3494545456', 'cnic': '42101-5566778-9', 'address': 'Lahore, Pakistan'}
-    ],
-    '923135645789': [
-        {'full_name': 'Zara Ahmed', 'phone': '923135645789', 'cnic': '35202-9988776-1', 'address': 'Islamabad, Pakistan'}
-    ]
-}
-# =================================================
 
-# ========= Channel Join Check =========
+# 🔹 Check channel join
 async def is_user_joined(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
     try:
-        member = await context.bot.get_chat_member(CHANNEL_USERNAME, update.effective_user.id)
+        member = await context.bot.get_chat_member(CHANNEL_USERNAME, user_id)
         return member.status in ["member", "administrator", "creator"]
     except:
-        # Agar error aaye to assume joined (testing)
-        return True
+        return False
 
-# ============= /start =============
+
+# 🔹 Force Join Message
+async def force_join(update: Update):
+    keyboard = [
+        [InlineKeyboardButton("🔔 Join Channel", url=f"https://t.me/{CHANNEL_USERNAME.replace('@','')}")],
+        [InlineKeyboardButton("✅ Joined", callback_data="joined")]
+    ]
+    return InlineKeyboardMarkup(keyboard)
+
+
+# 🔹 Start Command
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    joined = await is_user_joined(update, context)
+
+    if not joined:
+        await update.message.reply_text(
+            "⚠️ Bot use karne ke liye channel join karna zaroori hai",
+            reply_markup=await force_join(update)
+        )
+        return
+
     await update.message.reply_text(
-        "🇵🇰 *PAK SIM INFO*\n\n"
-        "📱 Please type a phone number (e.g. 3494545456 or 923135645789)",
+        "📱 *SIM Database Bot*\n\n"
+        "📌 Number send karein (without +92)\n\n"
+        "Example:\n3482265786",
         parse_mode="Markdown"
     )
 
-# ============= SIM INFO =============
-async def sim_info(update: Update, context: ContextTypes.DEFAULT_TYPE):
+
+# 🔹 Handle Number
+async def handle_number(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    joined = await is_user_joined(update, context)
+
+    if not joined:
+        await update.message.reply_text(
+            "❌ Pehle channel join karein",
+            reply_markup=await force_join(update)
+        )
+        return
+
     number = update.message.text.strip()
-    
+
     if not number.isdigit():
-        await update.message.reply_text("❌ Please enter digits only")
+        await update.message.reply_text("❌ Sirf number send karein")
         return
 
-    entries = intelligenceDB.get(number)
-    if not entries:
-        await update.message.reply_text("❌ No data found for this number")
-        return
-    
-    msg = f"🇵🇰 *PAK SIM INFO* ({number})\n\n"
-    for idx, data in enumerate(entries, 1):
-        msg += f"🔹 Entry {idx}:\n"
-        msg += f"   *Full Name*: `{data['full_name']}`\n"
-        msg += f"   *Phone*: `{data['phone']}`\n"
-        msg += f"   *CNIC*: `{data['cnic']}`\n"
-        msg += f"   *Address*: `{data['address']}`\n\n"
-    
-    await update.message.reply_text(msg, parse_mode="Markdown")
+    try:
+        response = requests.get(API_URL + number, timeout=15)
+        data = response.json()
 
-# ============= MAIN =============
+        # 🔹 Clean & format data
+        name = data.get("name", "Not Found")
+        cnic = data.get("cnic", "Not Found")
+        address = data.get("address", "Not Found")
+
+        result = (
+            f"📊 *SIM Information*\n\n"
+            f"📞 *Number:* {number}\n"
+            f"👤 *Name:* {name}\n"
+            f"🆔 *CNIC:* {cnic}\n"
+            f"🏠 *Address:* {address}"
+        )
+
+        await update.message.reply_text(result, parse_mode="Markdown")
+
+    except:
+        await update.message.reply_text("❌ Data fetch nahi ho saka")
+
+
+# 🔹 Main
 def main():
     app = Application.builder().token(BOT_TOKEN).build()
+
     app.add_handler(CommandHandler("start", start))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, sim_info))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_number))
+
+    print("🤖 Bot Running...")
     app.run_polling()
+
 
 if __name__ == "__main__":
     main()
